@@ -295,6 +295,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             app.ui.tab = next.to_string();
         }
     }
+    let mut tab_rects = Vec::new();
+    let mut motion = None;
     // Tab strip.
     egui::Panel::top("tabs")
         .exact_size(30.0)
@@ -426,10 +428,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 );
                             }
                             let resp = if cut { resp.on_hover_text(shown) } else { resp };
-                            if active {
-                                let u = Rect::from_center_size(pos2(r.center().x, r.max.y - 2.0), vec2(w - 16.0, 3.0));
-                                ui.painter().rect_filled(u, 2.0, t.accent);
-                            }
+                            tab_rects
+                                .push((tab.to_owned(), Rect::from_center_size(pos2(r.center().x, r.max.y - 2.0), vec2((w - 16.0).max(4.0), 3.0))));
                             if resp.clicked() {
                                 let _ = app.run("ui.tab", json!({"tab": tab}));
                             }
@@ -471,6 +471,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     });
                 });
             });
+            // Resolve after all clicks, so the indicator and controls share the same target.
+            let index = tabs.iter().position(|(name, _)| *name == app.ui.tab).unwrap_or(0);
+            let target = tab_rects.iter().find(|(name, _)| *name == app.ui.tab).map(|(_, rect)| *rect);
+            let frame = crate::ribbon_motion::frame(ui.ctx(), &app.ui.tab, index, target, app.animations_on(), !app.ui.ribbon_collapsed);
+            crate::ribbon_motion::paint_underline(ui, frame, t.accent);
+            motion = Some(frame);
         });
     if app.ui.ribbon_collapsed {
         return;
@@ -490,6 +496,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let bg = ui.interact(ui.max_rect(), ui.id().with("ribbon_background"), Sense::click());
             bg.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
             let entry = user_tabs.iter().find(|e| e.name == app.ui.tab);
+            let Some(motion) = motion else { return };
+            let mut content = crate::ribbon_motion::content_ui(ui, motion);
+            let ui = &mut content;
             crate::ribbon_fit::begin(ui.ctx(), &app.ui.tab, ui.available_width() - 4.0);
             let scroll = egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
                 ui.horizontal_top(|ui| {
@@ -531,7 +540,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             crate::ribbon_fit::end(ui.ctx());
             // The bar is hidden, so a row wider than the window would be clipped with no sign. Edge chevrons show
             // where more is and scroll it on click. Every command also stays reachable through Search Commands.
-            let r = scroll.inner_rect;
+            let r = scroll.inner_rect.translate(vec2(-motion.offset, 0.0));
             let overflow = scroll.content_size.x - r.width();
             let offset = scroll.state.offset.x;
             let step = 160.0;
